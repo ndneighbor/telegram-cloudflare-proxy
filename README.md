@@ -32,7 +32,7 @@ npm run deploy:api
 
 Deploy this repo to Railway - it will automatically deploy the worker to Cloudflare:
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/telegram-proxy)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/ndneighbor/telegram-cloudflare-proxy)
 
 **Required environment variables** (set in Railway dashboard):
 - `CLOUDFLARE_API_TOKEN` - API token with Workers permission
