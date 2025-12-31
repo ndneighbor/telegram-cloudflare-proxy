@@ -14,6 +14,7 @@
  * Optional:
  *   WORKER_NAME           - Custom worker name (default: telegram-api-proxy)
  *   ALLOWED_TOKENS        - Comma-separated bot tokens to allowlist
+ *   CLOUDFLARE_SUBDOMAIN  - Your workers.dev subdomain (if auto-detection fails)
  */
 
 const fs = require('fs');
@@ -44,6 +45,7 @@ async function deployWorker() {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const workerName = process.env.WORKER_NAME || 'telegram-api-proxy';
   const allowedTokens = process.env.ALLOWED_TOKENS || '';
+  const manualSubdomain = process.env.CLOUDFLARE_SUBDOMAIN || '';
 
   if (!apiToken || !accountId) {
     throw new Error(
@@ -98,21 +100,25 @@ async function deployWorker() {
 
   console.log('Worker script uploaded successfully');
 
-  // Get account subdomain
-  console.log('Getting workers.dev subdomain...');
-  const accountResponse = await fetch(
-    `${API_BASE}/accounts/${accountId}/workers/subdomain`,
-    { headers: { 'Authorization': `Bearer ${apiToken}` } }
-  );
+  // Get account subdomain - use manual override if provided
+  let subdomain = manualSubdomain || null;
 
-  let subdomain = null;
-
-  if (accountResponse.ok) {
-    const accountResult = await safeJsonParse(accountResponse, 'subdomain check');
-    subdomain = accountResult.result?.subdomain;
-    console.log('Current subdomain:', subdomain || 'none');
+  if (subdomain) {
+    console.log('Using manually specified subdomain:', subdomain);
   } else {
-    console.log('Subdomain check returned:', accountResponse.status);
+    console.log('Getting workers.dev subdomain from API...');
+    const accountResponse = await fetch(
+      `${API_BASE}/accounts/${accountId}/workers/subdomain`,
+      { headers: { 'Authorization': `Bearer ${apiToken}` } }
+    );
+
+    if (accountResponse.ok) {
+      const accountResult = await safeJsonParse(accountResponse, 'subdomain check');
+      subdomain = accountResult.result?.subdomain;
+      console.log('Current subdomain:', subdomain || 'none');
+    } else {
+      console.log('Subdomain check returned:', accountResponse.status);
+    }
   }
 
   // Enable workers.dev route for this specific worker
@@ -136,8 +142,8 @@ async function deployWorker() {
     console.log('Enable subdomain returned:', enableSubdomainResponse.status);
   }
 
-  // If we don't have subdomain yet, try to get it again
-  if (!subdomain) {
+  // If we don't have subdomain yet and it wasn't manually specified, try to get it again
+  if (!subdomain && !manualSubdomain) {
     console.log('Re-fetching subdomain...');
     const retryResponse = await fetch(
       `${API_BASE}/accounts/${accountId}/workers/subdomain`,
@@ -220,12 +226,13 @@ ${deploymentStatus.workerUrl}/bot&lt;TOKEN&gt;/sendMessage</pre>
   <pre>curl ${deploymentStatus.workerUrl}/</pre>
   ` : ''}
 
-  ${deploymentStatus.status === 'error' ? `
+  ${deploymentStatus.status === 'error' || (deploymentStatus.workerUrl && !deploymentStatus.workerUrl.includes('.workers.dev')) ? `
   <h2>Troubleshooting</h2>
   <p>Make sure you've set these environment variables in Railway:</p>
   <ul>
     <li><code>CLOUDFLARE_API_TOKEN</code> - Get from <a href="https://dash.cloudflare.com/profile/api-tokens">Cloudflare API Tokens</a></li>
     <li><code>CLOUDFLARE_ACCOUNT_ID</code> - Found in your <a href="https://dash.cloudflare.com">Cloudflare dashboard</a> sidebar</li>
+    <li><code>CLOUDFLARE_SUBDOMAIN</code> (optional) - Your workers.dev subdomain, if auto-detection fails. Find it in Workers & Pages dashboard.</li>
   </ul>
   ` : ''}
 
