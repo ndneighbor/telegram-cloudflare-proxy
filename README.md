@@ -26,7 +26,7 @@ npm run deploy:api
 
 **To get your credentials:**
 1. **API Token**: Go to https://dash.cloudflare.com/profile/api-tokens → Create Token → Use "Edit Cloudflare Workers" template
-2. **Account ID**: Visit https://dash.cloudflare.com → shown in the right sidebar URL or overview page
+2. **Account ID**: Visit https://dash.cloudflare.com → shown in the right sidebar URL or overview page. You can click the three dots menu and copy Account ID.
 
 ### Option 2: Deploy from Railway (One-Click)
 
