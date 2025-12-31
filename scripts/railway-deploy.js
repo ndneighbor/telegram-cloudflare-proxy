@@ -119,6 +119,38 @@ async function deployWorker() {
     } else {
       console.log('Subdomain check returned:', accountResponse.status);
     }
+
+    // If no subdomain exists, try to create one
+    if (!subdomain) {
+      console.log('No subdomain found, attempting to create one...');
+      // Generate a subdomain from worker name or a random string
+      const newSubdomain = workerName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+
+      const createResponse = await fetch(
+        `${API_BASE}/accounts/${accountId}/workers/subdomain`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ subdomain: newSubdomain }),
+        }
+      );
+
+      if (createResponse.ok) {
+        const createResult = await safeJsonParse(createResponse, 'subdomain create');
+        if (createResult.success) {
+          subdomain = createResult.result?.subdomain || newSubdomain;
+          console.log('Created subdomain:', subdomain);
+        } else {
+          console.log('Failed to create subdomain:', JSON.stringify(createResult.errors));
+        }
+      } else {
+        const errorText = await createResponse.text();
+        console.log('Create subdomain returned:', createResponse.status, errorText.substring(0, 200));
+      }
+    }
   }
 
   // Enable workers.dev route for this specific worker
