@@ -123,8 +123,9 @@ async function deployWorker() {
     // If no subdomain exists, try to create one
     if (!subdomain) {
       console.log('No subdomain found, attempting to create one...');
-      // Generate a subdomain from worker name or a random string
-      const newSubdomain = workerName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      // Generate a unique subdomain with random suffix to avoid collisions
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      const newSubdomain = `tg-proxy-${randomSuffix}`;
 
       const createResponse = await fetch(
         `${API_BASE}/accounts/${accountId}/workers/subdomain`,
