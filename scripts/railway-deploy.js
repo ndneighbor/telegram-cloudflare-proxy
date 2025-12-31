@@ -29,6 +29,16 @@ let deploymentStatus = {
   timestamp: new Date().toISOString()
 };
 
+async function safeJsonParse(response, context) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.error(`Failed to parse JSON for ${context}:`, text.substring(0, 500));
+    throw new Error(`Invalid JSON response from ${context}: ${text.substring(0, 100)}`);
+  }
+}
+
 async function deployWorker() {
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -43,6 +53,7 @@ async function deployWorker() {
   }
 
   console.log(`Deploying worker "${workerName}" to Cloudflare...`);
+  console.log(`Account ID: ${accountId.substring(0, 8)}...`);
 
   // Read the worker script
   const scriptPath = path.join(__dirname, '..', 'src', 'index.js');
@@ -68,7 +79,8 @@ async function deployWorker() {
   formData.append('index.js', new Blob([scriptContent], { type: 'application/javascript+module' }), 'index.js');
   formData.append('metadata', JSON.stringify(metadata));
 
-  // Deploy
+  // Deploy the worker
+  console.log('Uploading worker script...');
   const response = await fetch(
     `${API_BASE}/accounts/${accountId}/workers/scripts/${workerName}`,
     {
@@ -78,33 +90,33 @@ async function deployWorker() {
     }
   );
 
-  const result = await response.json();
+  const result = await safeJsonParse(response, 'worker upload');
 
   if (!result.success) {
     throw new Error(`Deployment failed: ${JSON.stringify(result.errors)}`);
   }
 
-  // Get account subdomain first
+  console.log('Worker script uploaded successfully');
+
+  // Get account subdomain
+  console.log('Getting workers.dev subdomain...');
   const accountResponse = await fetch(
     `${API_BASE}/accounts/${accountId}/workers/subdomain`,
     { headers: { 'Authorization': `Bearer ${apiToken}` } }
   );
-  const accountResult = await accountResponse.json();
-  let subdomain = accountResult.result?.subdomain;
 
-  // If no subdomain exists, we need to create one
-  if (!subdomain) {
-    console.log('No workers.dev subdomain found, attempting to enable...');
-    // Try to get it from the worker's settings
-    const workerResponse = await fetch(
-      `${API_BASE}/accounts/${accountId}/workers/scripts/${workerName}`,
-      { headers: { 'Authorization': `Bearer ${apiToken}` } }
-    );
-    const workerResult = await workerResponse.json();
-    console.log('Worker info:', JSON.stringify(workerResult.result, null, 2));
+  let subdomain = null;
+
+  if (accountResponse.ok) {
+    const accountResult = await safeJsonParse(accountResponse, 'subdomain check');
+    subdomain = accountResult.result?.subdomain;
+    console.log('Current subdomain:', subdomain || 'none');
+  } else {
+    console.log('Subdomain check returned:', accountResponse.status);
   }
 
   // Enable workers.dev route for this specific worker
+  console.log('Enabling workers.dev route...');
   const enableSubdomainResponse = await fetch(
     `${API_BASE}/accounts/${accountId}/workers/scripts/${workerName}/subdomain`,
     {
@@ -116,27 +128,48 @@ async function deployWorker() {
       body: JSON.stringify({ enabled: true }),
     }
   );
-  const enableResult = await enableSubdomainResponse.json();
-  console.log('Enable subdomain result:', JSON.stringify(enableResult, null, 2));
 
-  // Re-fetch subdomain after enabling
+  if (enableSubdomainResponse.ok) {
+    const enableResult = await safeJsonParse(enableSubdomainResponse, 'enable subdomain');
+    console.log('Subdomain enable result:', enableResult.success ? 'success' : 'failed');
+  } else {
+    console.log('Enable subdomain returned:', enableSubdomainResponse.status);
+  }
+
+  // If we don't have subdomain yet, try to get it again
   if (!subdomain) {
+    console.log('Re-fetching subdomain...');
     const retryResponse = await fetch(
       `${API_BASE}/accounts/${accountId}/workers/subdomain`,
       { headers: { 'Authorization': `Bearer ${apiToken}` } }
     );
-    const retryResult = await retryResponse.json();
-    subdomain = retryResult.result?.subdomain;
+
+    if (retryResponse.ok) {
+      const retryResult = await safeJsonParse(retryResponse, 'subdomain retry');
+      subdomain = retryResult.result?.subdomain;
+      console.log('Subdomain after retry:', subdomain || 'still none');
+    }
   }
 
   if (subdomain) {
-    return `https://${workerName}.${subdomain}.workers.dev`;
+    const workerUrl = `https://${workerName}.${subdomain}.workers.dev`;
+    console.log('Worker URL:', workerUrl);
+    return workerUrl;
   }
 
-  // Fallback: construct URL from account ID (won't work but shows the pattern)
+  // Fallback - try to get deployment info
   console.log('Warning: Could not determine workers.dev subdomain');
-  console.log('Please check your Cloudflare dashboard for the worker URL');
-  return `https://dash.cloudflare.com/${accountId}/workers/services/view/${workerName}`;
+  console.log('The worker was deployed but we could not determine the URL.');
+  console.log('Please check your Cloudflare dashboard for the worker URL.');
+  console.log('');
+  console.log('It should be: https://' + workerName + '.<your-subdomain>.workers.dev');
+  console.log('');
+  console.log('To find your subdomain:');
+  console.log('1. Go to https://dash.cloudflare.com');
+  console.log('2. Click "Workers & Pages"');
+  console.log('3. Your subdomain is shown at the top');
+
+  return `Check Cloudflare dashboard: https://dash.cloudflare.com/${accountId}/workers/services/view/${workerName}`;
 }
 
 function startStatusServer() {
@@ -145,6 +178,8 @@ function startStatusServer() {
   const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.writeHead(200);
+
+    const isWorkerUrl = deploymentStatus.workerUrl && deploymentStatus.workerUrl.includes('.workers.dev');
 
     const html = `
 <!DOCTYPE html>
@@ -167,11 +202,11 @@ function startStatusServer() {
 
   <div class="status ${deploymentStatus.status === 'success' ? 'success' : deploymentStatus.status === 'error' ? 'error' : 'pending'}">
     <strong>Status:</strong> ${deploymentStatus.status.toUpperCase()}
-    ${deploymentStatus.workerUrl ? `<br><br><strong>Worker URL:</strong> <a href="${deploymentStatus.workerUrl}" target="_blank">${deploymentStatus.workerUrl}</a>` : ''}
+    ${deploymentStatus.workerUrl ? `<br><br><strong>Worker URL:</strong> ${isWorkerUrl ? `<a href="${deploymentStatus.workerUrl}" target="_blank">${deploymentStatus.workerUrl}</a>` : deploymentStatus.workerUrl}` : ''}
     ${deploymentStatus.error ? `<br><br><strong>Error:</strong> ${deploymentStatus.error}` : ''}
   </div>
 
-  ${deploymentStatus.workerUrl ? `
+  ${isWorkerUrl ? `
   <h2>Usage</h2>
   <p>Replace <code>api.telegram.org</code> with your worker URL:</p>
   <pre>
@@ -234,6 +269,7 @@ async function main() {
       timestamp: new Date().toISOString()
     };
     console.error('Deployment failed:', error.message);
+    console.error(error.stack);
   }
 }
 
