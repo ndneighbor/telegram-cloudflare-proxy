@@ -175,7 +175,7 @@ Cloudflare Workers free tier includes:
 - 100,000 requests per day
 - 10ms CPU time per request
 
-This is sufficient for most bots. If you need more, Cloudflare's paid plan starts at $5/month for 10 million requests.
+This is sufficient for most bots. If you need more, Cloudflare's paid plan starts at $5/month for 10 million requests. In the meantime, Railway is working to restore IP access for all blocks to the telegram API.
 
 ## Troubleshooting
 
