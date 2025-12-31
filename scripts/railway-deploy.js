@@ -84,8 +84,28 @@ async function deployWorker() {
     throw new Error(`Deployment failed: ${JSON.stringify(result.errors)}`);
   }
 
-  // Enable workers.dev subdomain
-  await fetch(
+  // Get account subdomain first
+  const accountResponse = await fetch(
+    `${API_BASE}/accounts/${accountId}/workers/subdomain`,
+    { headers: { 'Authorization': `Bearer ${apiToken}` } }
+  );
+  const accountResult = await accountResponse.json();
+  let subdomain = accountResult.result?.subdomain;
+
+  // If no subdomain exists, we need to create one
+  if (!subdomain) {
+    console.log('No workers.dev subdomain found, attempting to enable...');
+    // Try to get it from the worker's settings
+    const workerResponse = await fetch(
+      `${API_BASE}/accounts/${accountId}/workers/scripts/${workerName}`,
+      { headers: { 'Authorization': `Bearer ${apiToken}` } }
+    );
+    const workerResult = await workerResponse.json();
+    console.log('Worker info:', JSON.stringify(workerResult.result, null, 2));
+  }
+
+  // Enable workers.dev route for this specific worker
+  const enableSubdomainResponse = await fetch(
     `${API_BASE}/accounts/${accountId}/workers/scripts/${workerName}/subdomain`,
     {
       method: 'POST',
@@ -96,19 +116,26 @@ async function deployWorker() {
       body: JSON.stringify({ enabled: true }),
     }
   );
+  const enableResult = await enableSubdomainResponse.json();
+  console.log('Enable subdomain result:', JSON.stringify(enableResult, null, 2));
 
-  // Get subdomain
-  const accountResponse = await fetch(
-    `${API_BASE}/accounts/${accountId}/workers/subdomain`,
-    { headers: { 'Authorization': `Bearer ${apiToken}` } }
-  );
-  const accountResult = await accountResponse.json();
-  const subdomain = accountResult.result?.subdomain;
+  // Re-fetch subdomain after enabling
+  if (!subdomain) {
+    const retryResponse = await fetch(
+      `${API_BASE}/accounts/${accountId}/workers/subdomain`,
+      { headers: { 'Authorization': `Bearer ${apiToken}` } }
+    );
+    const retryResult = await retryResponse.json();
+    subdomain = retryResult.result?.subdomain;
+  }
 
   if (subdomain) {
     return `https://${workerName}.${subdomain}.workers.dev`;
   }
 
+  // Fallback: construct URL from account ID (won't work but shows the pattern)
+  console.log('Warning: Could not determine workers.dev subdomain');
+  console.log('Please check your Cloudflare dashboard for the worker URL');
   return `https://dash.cloudflare.com/${accountId}/workers/services/view/${workerName}`;
 }
 
