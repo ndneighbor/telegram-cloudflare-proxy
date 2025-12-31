@@ -1,0 +1,14 @@
+name = "telegram-api-proxy"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Optional: Restrict to specific bot tokens (comma-separated)
+# Uncomment and set via `wrangler secret put ALLOWED_TOKENS`
+# [vars]
+# ALLOWED_TOKENS = ""
+
+# Optional: Custom domain
+# [routes]
+# routes = [
+#   { pattern = "telegram-proxy.yourdomain.com", custom_domain = true }
+# ]
